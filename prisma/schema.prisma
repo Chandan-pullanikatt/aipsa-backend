@@ -1,0 +1,164 @@
+generator client {
+  provider        = "prisma-client-js"
+  engineType      = "library"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Profile {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  memberships   Membership[]
+  groupMembers  GroupMember[]
+  tasksAssigned Task[]         @relation("AssignedTasks")
+  tasksCreated  Task[]         @relation("CreatedTasks")
+  messages      Message[]
+  refreshTokens RefreshToken[]
+
+  @@map("profiles")
+}
+
+model School {
+  id        String   @id @default(uuid())
+  name      String
+  address   String   @default("")
+  type      String   @default("Secondary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  memberships Membership[]
+  inviteCodes InviteCode[]
+  groups      Group[]
+
+  @@map("schools")
+}
+
+model Membership {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  schoolId  String   @map("school_id")
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, schoolId])
+  @@map("memberships")
+}
+
+model InviteCode {
+  id        String   @id @default(uuid())
+  schoolId  String   @map("school_id")
+  roleKey   String   @map("role_key")
+  code      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, roleKey])
+  @@map("invite_codes")
+}
+
+model Group {
+  id        String   @id @default(uuid())
+  schoolId  String   @map("school_id")
+  name      String
+  parentId  String?  @map("parent_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  school   School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  parent   Group?        @relation("GroupChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children Group[]       @relation("GroupChildren")
+  members  GroupMember[]
+  tasks    Task[]
+  messages Message[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  groupId String @map("group_id")
+
+  user  Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+model Task {
+  id         String    @id @default(uuid())
+  groupId    String    @map("group_id")
+  title      String
+  assignedTo String?   @map("assigned_to")
+  dueDate    DateTime? @map("due_date") @db.Date
+  priority   String    @default("medium")
+  status     String    @default("pending")
+  createdBy  String?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignee Profile? @relation("AssignedTasks", fields: [assignedTo], references: [id], onDelete: SetNull)
+  creator  Profile? @relation("CreatedTasks", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@map("tasks")
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  groupId    String   @map("group_id")
+  senderId   String?  @map("sender_id")
+  senderName String   @default("") @map("sender_name")
+  content    String   @default("")
+  type       String   @default("text")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  group  Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender Profile? @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@map("messages")
+}
+
+model OtpRequest {
+  id        String    @id @default(uuid())
+  email     String
+  code      String
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("otp_requests")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  message   String
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
