@@ -6,11 +6,6 @@ import { PrismaService } from '../prisma/prisma.service';
 export class BootstrapController {
   constructor(private prisma: PrismaService) {}
 
-  @Get('/')
-  healthCheck() {
-    return { status: 'ok', message: 'AIPSA Backend is running' };
-  }
-
   @Get('bootstrap')
   @UseGuards(JwtAuthGuard)
   async bootstrap(@Req() req: any) {

@@ -12,6 +12,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { MessagesModule } from './messages/messages.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { UploadModule } from './upload/upload.module';
+import { AppController } from './app.controller';
 
 @Module({
   imports: [
@@ -29,5 +30,6 @@ import { UploadModule } from './upload/upload.module';
     RealtimeModule,
     UploadModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
