@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
-import { RenameGroupDto } from './dto/rename-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
 
 @Injectable()
 export class GroupsService {
@@ -24,6 +24,7 @@ export class GroupsService {
       data: {
         schoolId: dto.schoolId,
         name: dto.name.trim(),
+        description: dto.description?.trim() || null,
         parentId: dto.parentId || null,
       },
     });
@@ -59,7 +60,7 @@ export class GroupsService {
     };
   }
 
-  async rename(userId: string, groupId: string, dto: RenameGroupDto) {
+  async rename(userId: string, groupId: string, dto: UpdateGroupDto) {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Group not found');
 
@@ -67,7 +68,10 @@ export class GroupsService {
 
     await this.prisma.group.update({
       where: { id: groupId },
-      data: { name: dto.name.trim() },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name.trim() }),
+        ...(dto.description !== undefined && { description: dto.description || null }),
+      },
     });
 
     return { success: true };

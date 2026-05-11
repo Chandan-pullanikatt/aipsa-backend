@@ -10,6 +10,11 @@ export class CreateGroupDto {
   name: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
   @IsUUID()
   parentId?: string;
 

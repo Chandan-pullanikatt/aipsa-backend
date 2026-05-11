@@ -11,7 +11,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
-import { RenameGroupDto } from './dto/rename-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
 
 @Controller('groups')
 @UseGuards(JwtAuthGuard)
@@ -27,7 +27,7 @@ export class GroupsController {
   rename(
     @Req() req: any,
     @Param('id') groupId: string,
-    @Body() dto: RenameGroupDto,
+    @Body() dto: UpdateGroupDto,
   ) {
     return this.groups.rename(req.user.id, groupId, dto);
   }
