@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, IsIn } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsIn, IsArray } from 'class-validator';
 
 export class EditTaskDto {
   @IsOptional()
@@ -15,4 +15,8 @@ export class EditTaskDto {
   @IsOptional()
   @IsIn(['low', 'medium', 'high'])
   priority?: string;
+
+  @IsOptional()
+  @IsArray()
+  todoItems?: Array<{ id: string; text: string; done: boolean }> | null;
 }

@@ -103,8 +103,10 @@ model Task {
   dueDate    DateTime? @map("due_date") @db.Date
   priority   String    @default("medium")
   status     String    @default("pending")
+  todoItems  Json?     @map("todo_items")
   createdBy  String?   @map("created_by")
   createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
 
   group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   assignee Profile? @relation("AssignedTasks", fields: [assignedTo], references: [id], onDelete: SetNull)

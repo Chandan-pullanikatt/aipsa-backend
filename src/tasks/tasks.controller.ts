@@ -31,6 +31,16 @@ export class TasksController {
     return this.tasks.toggle(req.user.id, taskId);
   }
 
+  @Patch(':id/toggle-todo')
+  @HttpCode(HttpStatus.OK)
+  toggleTodo(
+    @Req() req: any,
+    @Param('id') taskId: string,
+    @Body('todoId') todoId: string,
+  ) {
+    return this.tasks.toggleTodo(req.user.id, taskId, todoId);
+  }
+
   @Patch(':id')
   edit(
     @Req() req: any,

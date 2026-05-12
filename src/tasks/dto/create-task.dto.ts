@@ -1,4 +1,16 @@
-import { IsString, IsUUID, IsOptional, MaxLength, IsIn } from 'class-validator';
+import { IsString, IsUUID, IsOptional, MaxLength, IsIn, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class TodoItemDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  @MaxLength(500)
+  text: string;
+
+  done: boolean;
+}
 
 export class CreateTaskDto {
   @IsUUID()
@@ -19,4 +31,8 @@ export class CreateTaskDto {
   @IsOptional()
   @IsIn(['low', 'medium', 'high'])
   priority?: string;
+
+  @IsOptional()
+  @IsArray()
+  todoItems?: TodoItemDto[];
 }

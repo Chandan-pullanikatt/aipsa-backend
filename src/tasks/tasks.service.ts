@@ -21,6 +21,10 @@ export class TasksService {
   async create(userId: string, dto: CreateTaskDto) {
     await this.assertGroupMember(userId, dto.groupId);
 
+    const todoItems = (dto.todoItems || [])
+      .filter(i => i.text?.trim())
+      .map(i => ({ id: i.id, text: i.text.trim(), done: false }));
+
     const task = await this.prisma.task.create({
       data: {
         groupId: dto.groupId,
@@ -29,6 +33,7 @@ export class TasksService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         priority: dto.priority || 'medium',
         status: 'pending',
+        todoItems: todoItems.length ? todoItems : undefined,
         createdBy: userId,
       },
     });
@@ -44,9 +49,43 @@ export class TasksService {
     await this.assertGroupMember(userId, task.groupId);
 
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+
+    // When completing, mark all todo items as done
+    let todoItems = task.todoItems as any[] | null;
+    if (newStatus === 'completed' && todoItems?.length) {
+      todoItems = todoItems.map(item => ({ ...item, done: true }));
+    }
+
     const updated = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status: newStatus },
+      data: {
+        status: newStatus,
+        todoItems: todoItems ?? undefined,
+      },
+    });
+
+    const formatted = this.fmt(updated);
+    this.gateway.server.to(`tasks:${updated.groupId}`).emit('task:updated', formatted);
+    return formatted;
+  }
+
+  async toggleTodo(userId: string, taskId: string, todoId: string) {
+    const task = await this.prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
+    await this.assertGroupMember(userId, task.groupId);
+
+    const items = (task.todoItems as any[]) || [];
+    const updated_items = items.map(item =>
+      item.id === todoId ? { ...item, done: !item.done } : item,
+    );
+
+    // Auto-complete task when all todo items are done
+    const allDone = updated_items.length > 0 && updated_items.every(i => i.done);
+    const newStatus = allDone ? 'completed' : task.status === 'completed' ? 'pending' : task.status;
+
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data: { todoItems: updated_items, status: newStatus },
     });
 
     const formatted = this.fmt(updated);
@@ -64,6 +103,11 @@ export class TasksService {
     if (dto.assignedTo !== undefined) data.assignedTo = dto.assignedTo || null;
     if (dto.dueDate !== undefined) data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
     if (dto.priority !== undefined) data.priority = dto.priority;
+    if (dto.todoItems !== undefined) {
+      data.todoItems = dto.todoItems
+        ? dto.todoItems.filter(i => i.text?.trim()).map(i => ({ ...i, text: i.text.trim() }))
+        : null;
+    }
 
     const updated = await this.prisma.task.update({ where: { id: taskId }, data });
 
@@ -78,11 +122,7 @@ export class TasksService {
     await this.assertGroupMember(userId, task.groupId);
 
     await this.prisma.task.delete({ where: { id: taskId } });
-
-    this.gateway.server
-      .to(`tasks:${task.groupId}`)
-      .emit('task:deleted', { id: taskId });
-
+    this.gateway.server.to(`tasks:${task.groupId}`).emit('task:deleted', { id: taskId });
     return { success: true };
   }
 
@@ -104,7 +144,9 @@ export class TasksService {
       dueDate: task.dueDate,
       priority: task.priority,
       status: task.status,
+      todoItems: task.todoItems ?? null,
       createdBy: task.createdBy,
+      updatedAt: task.updatedAt,
     };
   }
 }
