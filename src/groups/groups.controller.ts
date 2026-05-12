@@ -7,6 +7,8 @@ import {
   Param,
   Req,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GroupsService } from './groups.service';
@@ -30,6 +32,16 @@ export class GroupsController {
     @Body() dto: UpdateGroupDto,
   ) {
     return this.groups.rename(req.user.id, groupId, dto);
+  }
+
+  @Patch(':id/members')
+  @HttpCode(HttpStatus.OK)
+  addMembers(
+    @Req() req: any,
+    @Param('id') groupId: string,
+    @Body('userIds') userIds: string[],
+  ) {
+    return this.groups.addMembers(req.user.id, groupId, userIds);
   }
 
   @Delete(':id')

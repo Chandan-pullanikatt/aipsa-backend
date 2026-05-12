@@ -113,6 +113,7 @@ export class BootstrapController {
         id: g.id,
         schoolId: g.schoolId,
         name: g.name,
+        description: g.description || null,
         parentId: g.parentId || null,
       })),
       groupMembers: groupMembers.map((gm) => ({
@@ -127,6 +128,8 @@ export class BootstrapController {
         dueDate: t.dueDate,
         priority: t.priority,
         status: t.status,
+        todoItems: t.todoItems ?? null,
+        updatedAt: t.updatedAt,
         createdBy: t.createdBy,
       })),
       users: allUsers.map((u) => ({

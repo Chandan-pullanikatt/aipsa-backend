@@ -29,7 +29,6 @@ export class GroupsService {
       },
     });
 
-    // If userIds provided, use them. Otherwise default to all school members (current behavior)
     let finalUserIds = dto.userIds;
     if (!finalUserIds || finalUserIds.length === 0) {
       const schoolMembers = await this.prisma.membership.findMany({
@@ -39,7 +38,6 @@ export class GroupsService {
       finalUserIds = schoolMembers.map((m) => m.userId);
     }
 
-    // Ensure the creator is always in the group if not already specified
     if (!finalUserIds.includes(userId)) {
       finalUserIds.push(userId);
     }
@@ -55,6 +53,7 @@ export class GroupsService {
       id: group.id,
       schoolId: group.schoolId,
       name: group.name,
+      description: group.description,
       parentId: group.parentId || null,
       groupMembers: finalUserIds.map((uid) => ({ userId: uid, groupId: group.id })),
     };
@@ -64,7 +63,7 @@ export class GroupsService {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Group not found');
 
-    await this.assertOwner(userId, group.schoolId);
+    await this.assertManagerOrAbove(userId, group.schoolId);
 
     await this.prisma.group.update({
       where: { id: groupId },
@@ -77,17 +76,29 @@ export class GroupsService {
     return { success: true };
   }
 
+  async addMembers(userId: string, groupId: string, userIds: string[]) {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    if (!group) throw new NotFoundException('Group not found');
+
+    await this.assertManagerOrAbove(userId, group.schoolId);
+
+    await this.prisma.groupMember.createMany({
+      data: userIds.map((uid) => ({ userId: uid, groupId })),
+      skipDuplicates: true,
+    });
+
+    return { success: true, groupId, addedUserIds: userIds };
+  }
+
   async delete(userId: string, groupId: string) {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Group not found');
 
-    await this.assertOwner(userId, group.schoolId);
+    await this.assertManagerOrAbove(userId, group.schoolId);
 
-    // Collect this group and all descendants recursively
     const toDelete = await this.collectDescendants(groupId);
     toDelete.push(groupId);
 
-    // PostgreSQL ON DELETE CASCADE handles group_members, tasks, messages
     await this.prisma.group.deleteMany({ where: { id: { in: toDelete } } });
 
     return { success: true, deletedGroupIds: toDelete };
@@ -109,12 +120,12 @@ export class GroupsService {
     return ids;
   }
 
-  private async assertOwner(userId: string, schoolId: string) {
+  private async assertManagerOrAbove(userId: string, schoolId: string) {
     const membership = await this.prisma.membership.findUnique({
       where: { userId_schoolId: { userId, schoolId } },
     });
-    if (!membership || membership.role !== 'Owner') {
-      throw new ForbiddenException('Only school Owners can perform this action');
+    if (!membership || !['Owner', 'Admin', 'Manager'].includes(membership.role)) {
+      throw new ForbiddenException('Only Owners, Admins, and Managers can perform this action');
     }
   }
 }

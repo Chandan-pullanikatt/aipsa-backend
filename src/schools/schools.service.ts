@@ -11,12 +11,16 @@ function genCode(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
+const CODE_PREFIXES: Record<string, string> = {
+  manager: 'M',
+  user:    'U',
+};
+
 @Injectable()
 export class SchoolsService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateSchoolDto) {
-    // Create school + owner membership + 3 invite codes atomically
     const school = await this.prisma.school.create({
       data: {
         name: dto.name.trim(),
@@ -27,9 +31,8 @@ export class SchoolsService {
         },
         inviteCodes: {
           create: [
-            { roleKey: 'teacher', code: genCode('T') },
-            { roleKey: 'staff',   code: genCode('S') },
             { roleKey: 'manager', code: genCode('M') },
+            { roleKey: 'user',    code: genCode('U') },
           ],
         },
       },
@@ -52,7 +55,7 @@ export class SchoolsService {
   }
 
   async update(userId: string, schoolId: string, dto: UpdateSchoolDto) {
-    await this.assertOwner(userId, schoolId);
+    await this.assertAdminOrAbove(userId, schoolId);
 
     const updates: any = {};
     if (dto.name !== undefined) updates.name = dto.name.trim();
@@ -64,15 +67,13 @@ export class SchoolsService {
   }
 
   async regenerateCode(userId: string, schoolId: string, roleKey: string) {
-    await this.assertOwner(userId, schoolId);
+    await this.assertAdminOrAbove(userId, schoolId);
 
-    const prefixMap: Record<string, string> = {
-      teacher: 'T',
-      staff: 'S',
-      manager: 'M',
-    };
-    const code = genCode(prefixMap[roleKey] || 'T');
+    if (!CODE_PREFIXES[roleKey]) {
+      throw new ForbiddenException('Invalid role key');
+    }
 
+    const code = genCode(CODE_PREFIXES[roleKey]);
     await this.prisma.inviteCode.upsert({
       where: { schoolId_roleKey: { schoolId, roleKey } },
       create: { schoolId, roleKey, code },
@@ -85,21 +86,28 @@ export class SchoolsService {
   // ── Guard helpers ────────────────────────────────────────────
 
   async assertOwner(userId: string, schoolId: string) {
-    const membership = await this.prisma.membership.findUnique({
+    const m = await this.prisma.membership.findUnique({
       where: { userId_schoolId: { userId, schoolId } },
     });
-    if (!membership || membership.role !== 'Owner') {
+    if (!m || m.role !== 'Owner') {
       throw new ForbiddenException('Only school Owners can perform this action');
     }
   }
 
-  async assertMember(userId: string, schoolId: string) {
-    const membership = await this.prisma.membership.findUnique({
+  async assertAdminOrAbove(userId: string, schoolId: string) {
+    const m = await this.prisma.membership.findUnique({
       where: { userId_schoolId: { userId, schoolId } },
     });
-    if (!membership) {
-      throw new ForbiddenException('You are not a member of this school');
+    if (!m || !['Owner', 'Admin'].includes(m.role)) {
+      throw new ForbiddenException('Only Owners and Admins can perform this action');
     }
-    return membership;
+  }
+
+  async assertMember(userId: string, schoolId: string) {
+    const m = await this.prisma.membership.findUnique({
+      where: { userId_schoolId: { userId, schoolId } },
+    });
+    if (!m) throw new ForbiddenException('You are not a member of this school');
+    return m;
   }
 }

@@ -26,6 +26,12 @@ export class MembershipsController {
     return this.memberships.joinSchool(req.user.id, dto);
   }
 
+  @Post('accept-invite')
+  @HttpCode(HttpStatus.OK)
+  acceptEmailInvite(@Req() req: any, @Body('token') token: string) {
+    return this.memberships.acceptEmailInvite(req.user.id, token);
+  }
+
   @Delete(':schoolId/members/:userId')
   removeMember(
     @Req() req: any,

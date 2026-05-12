@@ -29,11 +29,13 @@ model School {
   name      String
   address   String   @default("")
   type      String   @default("Secondary")
+  maxAdmins Int      @default(1) @map("max_admins")
   createdAt DateTime @default(now()) @map("created_at")
 
-  memberships Membership[]
-  inviteCodes InviteCode[]
-  groups      Group[]
+  memberships  Membership[]
+  inviteCodes  InviteCode[]
+  groups       Group[]
+  emailInvites EmailInvite[]
 
   @@map("schools")
 }
@@ -164,4 +166,19 @@ model Notification {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("notifications")
+}
+
+model EmailInvite {
+  id        String    @id @default(uuid())
+  schoolId  String    @map("school_id")
+  email     String
+  role      String    // 'Admin' | 'Manager' | 'User'
+  token     String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@map("email_invites")
 }

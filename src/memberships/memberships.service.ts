@@ -2,16 +2,14 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { JoinSchoolDto } from './dto/join-school.dto';
 
 const ROLE_MAP: Record<string, string> = {
-  teacher: 'Teacher',
-  staff: 'Staff',
   manager: 'Manager',
+  user:    'User',
 };
 
 @Injectable()
@@ -22,7 +20,6 @@ export class MembershipsService {
   ) {}
 
   async joinSchool(userId: string, dto: JoinSchoolDto) {
-    console.log(`[MEMBERSHIP] Attempting to join with code: "${dto.code}"`);
     const inviteCode = await this.prisma.inviteCode.findUnique({
       where: { code: dto.code.trim() },
     });
@@ -31,7 +28,6 @@ export class MembershipsService {
       throw new BadRequestException('Invalid invite code. Please check and try again.');
     }
 
-    // Check if already a member
     const existing = await this.prisma.membership.findUnique({
       where: { userId_schoolId: { userId, schoolId: inviteCode.schoolId } },
     });
@@ -39,20 +35,60 @@ export class MembershipsService {
       throw new BadRequestException('You are already a member of this school.');
     }
 
-    const role = ROLE_MAP[inviteCode.roleKey] || 'Staff';
+    const role = ROLE_MAP[inviteCode.roleKey] || 'User';
+    return this.createMembership(userId, inviteCode.schoolId, role);
+  }
 
-    // Create membership
-    await this.prisma.membership.create({
-      data: { userId, schoolId: inviteCode.schoolId, role },
+  async acceptEmailInvite(userId: string, token: string) {
+    const invite = await this.prisma.emailInvite.findUnique({ where: { token } });
+
+    if (!invite) throw new BadRequestException('Invalid or expired invite link.');
+    if (invite.usedAt) throw new BadRequestException('This invite link has already been used.');
+    if (new Date() > invite.expiresAt) throw new BadRequestException('This invite link has expired.');
+
+    // Verify email matches logged-in user
+    const profile = await this.prisma.profile.findUnique({ where: { id: userId } });
+    if (!profile || profile.email.toLowerCase() !== invite.email.toLowerCase()) {
+      throw new ForbiddenException('This invite was sent to a different email address.');
+    }
+
+    const existing = await this.prisma.membership.findUnique({
+      where: { userId_schoolId: { userId, schoolId: invite.schoolId } },
+    });
+    if (existing) throw new BadRequestException('You are already a member of this school.');
+
+    // Enforce maxAdmins if role is Admin
+    if (invite.role === 'Admin') {
+      const school = await this.prisma.school.findUnique({ where: { id: invite.schoolId } });
+      const adminCount = await this.prisma.membership.count({
+        where: { schoolId: invite.schoolId, role: 'Admin' },
+      });
+      if (school && adminCount >= school.maxAdmins) {
+        throw new BadRequestException(
+          `This school already has the maximum number of Admins (${school.maxAdmins}).`,
+        );
+      }
+    }
+
+    // Mark invite as used
+    await this.prisma.emailInvite.update({
+      where: { id: invite.id },
+      data: { usedAt: new Date() },
     });
 
-    // Fetch school + its groups in parallel
+    return this.createMembership(userId, invite.schoolId, invite.role);
+  }
+
+  private async createMembership(userId: string, schoolId: string, role: string) {
+    await this.prisma.membership.create({
+      data: { userId, schoolId, role },
+    });
+
     const [school, groups] = await Promise.all([
-      this.prisma.school.findUnique({ where: { id: inviteCode.schoolId } }),
-      this.prisma.group.findMany({ where: { schoolId: inviteCode.schoolId } }),
+      this.prisma.school.findUnique({ where: { id: schoolId } }),
+      this.prisma.group.findMany({ where: { schoolId } }),
     ]);
 
-    // Add new member to all groups in this school
     if (groups.length) {
       await this.prisma.groupMember.createMany({
         data: groups.map((g) => ({ userId, groupId: g.id })),
@@ -60,20 +96,19 @@ export class MembershipsService {
       });
     }
 
-    // --- NOTIFICATIONS FOR OWNERS ---
     try {
       const owners = await this.prisma.membership.findMany({
-        where: { schoolId: inviteCode.schoolId, role: 'Owner' },
+        where: { schoolId, role: { in: ['Owner', 'Admin'] } },
       });
       const profile = await this.prisma.profile.findUnique({ where: { id: userId } });
       const joinerName = profile?.name || profile?.email;
 
       if (owners.length) {
         const notifs = await Promise.all(
-          owners.map((owner) =>
+          owners.map((o) =>
             this.prisma.notification.create({
               data: {
-                userId: owner.userId,
+                userId: o.userId,
                 title: 'New Member Joined',
                 message: `${joinerName} has joined ${school?.name || 'the school'} as a ${role}.`,
                 type: 'success',
@@ -81,23 +116,18 @@ export class MembershipsService {
             }),
           ),
         );
-
-        // Emit to each owner via their private socket room
         notifs.forEach((n) => {
           this.gateway.server.to(`user:${n.userId}`).emit('notification:created', n);
         });
       }
 
-      // --- REAL-TIME STATE UPDATE FOR ALL SCHOOL MEMBERS ---
-      this.gateway.server.to(`school:${inviteCode.schoolId}`).emit('membership:created', {
-        userId,
-        schoolId: inviteCode.schoolId,
-        role,
+      this.gateway.server.to(`school:${schoolId}`).emit('membership:created', {
+        userId, schoolId, role,
       });
 
       const fullProfile = await this.prisma.profile.findUnique({ where: { id: userId } });
       if (fullProfile) {
-        this.gateway.server.to(`school:${inviteCode.schoolId}`).emit('user:joined', {
+        this.gateway.server.to(`school:${schoolId}`).emit('user:joined', {
           id: fullProfile.id,
           email: fullProfile.email,
           name: fullProfile.name,
@@ -109,16 +139,13 @@ export class MembershipsService {
 
     return {
       success: true,
-      schoolId: inviteCode.schoolId,
+      schoolId,
       role,
       school: school
         ? { id: school.id, name: school.name, address: school.address, type: school.type }
         : null,
       groups: groups.map((g) => ({
-        id: g.id,
-        schoolId: g.schoolId,
-        name: g.name,
-        parentId: g.parentId || null,
+        id: g.id, schoolId: g.schoolId, name: g.name, parentId: g.parentId || null,
       })),
       groupMemberships: groups.map((g) => ({ userId, groupId: g.id })),
     };
@@ -141,30 +168,29 @@ export class MembershipsService {
   }
 
   async removeMember(requesterId: string, schoolId: string, targetUserId: string) {
-    // Must be Owner to remove others; cannot remove yourself via this endpoint
     const requesterMembership = await this.prisma.membership.findUnique({
       where: { userId_schoolId: { userId: requesterId, schoolId } },
     });
 
-    if (!requesterMembership || requesterMembership.role !== 'Owner') {
-      throw new ForbiddenException('Only school Owners can remove members');
+    if (!requesterMembership || !['Owner', 'Admin'].includes(requesterMembership.role)) {
+      throw new ForbiddenException('Only Owners and Admins can remove members');
     }
 
     if (requesterId === targetUserId) {
-      throw new BadRequestException('Owners cannot remove themselves');
+      throw new BadRequestException('You cannot remove yourself');
     }
 
-    // Delete membership
-    await this.prisma.membership.deleteMany({
-      where: { userId: targetUserId, schoolId },
+    const target = await this.prisma.membership.findUnique({
+      where: { userId_schoolId: { userId: targetUserId, schoolId } },
     });
+    if (target?.role === 'Owner') {
+      throw new ForbiddenException('The school Owner cannot be removed');
+    }
 
-    // Delete group memberships for this school's groups
+    await this.prisma.membership.deleteMany({ where: { userId: targetUserId, schoolId } });
+
     const groupIds = (
-      await this.prisma.group.findMany({
-        where: { schoolId },
-        select: { id: true },
-      })
+      await this.prisma.group.findMany({ where: { schoolId }, select: { id: true } })
     ).map((g) => g.id);
 
     if (groupIds.length) {
